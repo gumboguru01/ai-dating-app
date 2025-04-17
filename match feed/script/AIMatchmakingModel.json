@@ -1,0 +1,10 @@
+{
+    "uid": "user_123",
+    "gender": "female",
+    "interests": [
+        "cooking",
+        "travel",
+        "artificial intelligence"
+    ],
+    "videoURL": "..."
+}
