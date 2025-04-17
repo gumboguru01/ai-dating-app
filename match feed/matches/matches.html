@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>My Matches - Neural Hearts</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+</head>
+
+<body class="bg-gray-900 text-white font-sans min-h-screen">
+
+    <!-- Header -->
+    <header class="p-4 bg-gray-800 shadow text-center">
+        <h1 class="text-2xl font-bold">💖 Neural Hearts</h1>
+        <p class="text-sm text-gray-400">Your Matches</p>
+    </header>
+
+    <!-- Match List -->
+    <main id="matchList" class="p-4 space-y-4">
+        <p class="text-center text-gray-500">Loading your matches...</p>
+    </main>
+
+    <!-- Firebase Config & Logic -->
+    <script>
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT_ID.appspot.com",
+            messagingSenderId: "YOUR_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const auth = firebase.auth();
+
+        const matchList = document.getElementById("matchList");
+
+        auth.onAuthStateChanged(async (user) => {
+            if (!user) return;
+
+            const matchesSnap = await db.collection("matches")
+                .where("users", "array-contains", user.uid)
+                .orderBy("createdAt", "desc")
+                .get();
+
+            matchList.innerHTML = "";
+
+            if (matchesSnap.empty) {
+                matchList.innerHTML = `<p class="text-center text-gray-400">You haven’t matched with anyone yet 🥺</p>`;
+                return;
+            }
+
+            matchesSnap.forEach(async matchDoc => {
+                const matchId = matchDoc.id;
+                const matchData = matchDoc.data();
+                const otherUserId = matchData.users.find(uid => uid !== user.uid);
+
+                const otherUserDoc = await db.collection("users").doc(otherUserId).get();
+                const otherUser = otherUserDoc.data();
+
+                const avatarURL = otherUser.photoURL || `https://ui-avatars.com/api/?name=${otherUser.username}&background=ff69b4&color=fff`;
+
+                // Get last message
+                const msgSnap = await db.collection("matches").doc(matchId)
+                    .collection("messages").orderBy("timestamp", "desc").limit(1).get();
+
+                const lastMessage = msgSnap.empty
+                    ? "Start the conversation! 👋"
+                    : msgSnap.docs[0].data().content;
+
+                // Build match card
+                const matchCard = document.createElement("div");
+                matchCard.className = "bg-gray-800 p-4 rounded-xl flex items-center space-x-4 hover:bg-gray-700 cursor-pointer transition";
+                matchCard.onclick = () => window.location.href = `chat.html?matchId=${matchId}`;
+
+                matchCard.innerHTML = `
+          <img src="${avatarURL}" class="w-12 h-12 rounded-full object-cover shadow" alt="avatar" />
+          <div class="flex-1">
+            <h3 class="font-semibold text-lg">${otherUser.username}</h3>
+            <p class="text-sm text-gray-400 truncate">${lastMessage}</p>
+          </div>
+          <span class="text-pink-500 text-xl">💬</span>
+        `;
+
+                matchList.appendChild(matchCard);
+            });
+        });
+    </script>
+
+</body>
+
+</html>

@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Neural Hearts Chat</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+</head>
+
+<body class="bg-gray-900 text-white flex flex-col min-h-screen">
+
+    <!-- Header -->
+    <header class="p-4 bg-gray-800 shadow text-center">
+        <h1 class="text-xl font-bold">Neural Hearts 💖</h1>
+        <p id="chatWith" class="text-sm text-gray-400">Chat</p>
+    </header>
+
+    <!-- Chat Messages -->
+    <main id="chatBox" class="flex-1 overflow-y-auto p-4 space-y-2"></main>
+    <div id="typingStatus" class="px-4 pb-1 text-xs italic text-pink-400"></div>
+
+    <!-- Chat Input -->
+    <form id="chatForm" class="p-4 bg-gray-800 flex space-x-2">
+        <input id="messageInput" type="text" placeholder="Type a message..."
+            class="flex-1 px-4 py-2 rounded-full bg-gray-700 text-white focus:outline-none" autocomplete="off" />
+        <button type="submit" class="bg-pink-600 hover:bg-pink-500 px-4 py-2 rounded-full font-semibold">Send</button>
+    </form>
+
+    <script>
+        // 🧠 Firebase Config
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT_ID.appspot.com",
+            messagingSenderId: "YOUR_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const auth = firebase.auth();
+
+        const matchId = new URLSearchParams(window.location.search).get("matchId");
+        const chatBox = document.getElementById("chatBox");
+        const chatForm = document.getElementById("chatForm");
+        const messageInput = document.getElementById("messageInput");
+        const typingStatus = document.getElementById("typingStatus");
+        const chatWith = document.getElementById("chatWith");
+
+        let currentUser = null;
+        let usersMap = {};
+        let typingTimeout;
+
+        auth.onAuthStateChanged(async user => {
+            if (!user || !matchId) return;
+
+            currentUser = user;
+
+            // Fetch match participants
+            const matchDoc = await db.collection("matches").doc(matchId).get();
+            const matchUsers = matchDoc.data().users;
+
+            for (const uid of matchUsers) {
+                const userDoc = await db.collection("users").doc(uid).get();
+                usersMap[uid] = userDoc.data();
+            }
+
+            const otherUserId = matchUsers.find(id => id !== currentUser.uid);
+            chatWith.textContent = `Chatting with ${usersMap[otherUserId].username}`;
+
+            // 🔄 Listen to messages
+            db.collection("matches").doc(matchId).collection("messages")
+                .orderBy("timestamp")
+                .onSnapshot(snapshot => {
+                    chatBox.innerHTML = "";
+                    snapshot.forEach(doc => {
+                        const msg = doc.data();
+                        const isMe = msg.sender === currentUser.uid;
+
+                        const msgRow = document.createElement("div");
+                        msgRow.className = `flex items-end space-x-2 ${isMe ? "justify-end" : "justify-start"}`;
+
+                        const avatar = document.createElement("img");
+                        avatar.src = usersMap[msg.sender].photoURL || `https://ui-avatars.com/api/?name=${usersMap[msg.sender].username}`;
+                        avatar.className = "w-8 h-8 rounded-full";
+
+                        const bubble = document.createElement("div");
+                        bubble.className = `p-3 rounded-xl max-w-xs ${isMe ? "bg-pink-600 text-white" : "bg-gray-700 text-white"}`;
+                        bubble.textContent = msg.content;
+
+                        if (isMe) {
+                            msgRow.appendChild(bubble);
+                            msgRow.appendChild(avatar);
+                        } else {
+                            msgRow.appendChild(avatar);
+                            msgRow.appendChild(bubble);
+                        }
+
+                        chatBox.appendChild(msgRow);
+                    });
+
+                    chatBox.scrollTop = chatBox.scrollHeight;
+                });
+
+            // 🔄 Listen to typing status
+            db.collection("matches").doc(matchId).collection("typing").doc(otherUserId)
+                .onSnapshot(doc => {
+                    typingStatus.textContent = doc.data()?.isTyping ? `${usersMap[otherUserId].username} is typing...` : "";
+                });
+
+            // Typing event
+            const typingRef = db.collection("matches").doc(matchId).collection("typing").doc(currentUser.uid);
+            messageInput.addEventListener("input", () => {
+                typingRef.set({ isTyping: true });
+                clearTimeout(typingTimeout);
+                typingTimeout = setTimeout(() => {
+                    typingRef.set({ isTyping: false });
+                }, 1000);
+            });
+
+            // Send message
+            chatForm.addEventListener("submit", async (e) => {
+                e.preventDefault();
+                const content = messageInput.value.trim();
+                if (!content) return;
+
+                await db.collection("matches").doc(matchId).collection("messages").add({
+                    sender: currentUser.uid,
+                    content,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                messageInput.value = "";
+                await typingRef.set({ isTyping: false });
+            });
+        });
+    </script>
+
+</body>
+
+</html>
